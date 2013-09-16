@@ -1,0 +1,156 @@
+#! /usr/bin/python
+# written by Per-Erik Persson
+# Licensed under GPL, feel free to use, modify, distribute.  Please give credit when/where appropriate.
+# will check /var/log/nagios/nagios.log for nonexisting hosts and add them and correlating passive services
+#when a host is found, it is added to nagios via a webrewuest to fruity
+#example log:
+#[1378731750] Warning:  Passive check result was received for service 'p_scom' on host 'SHAREPOINT.yourdomain', but the host could not be found!
+#[1378731750] EXTERNAL COMMAND: PROCESS_SERVICE_CHECK_RESULT;SHAREPOINT.yourdomain;p_scom;1;Operations Manager failed to run a WMI query
+#[1378731750] Warning:  Passive check result was received for service 'p_scom' on host 'SHAREPOINT.yourdomain', but the host could not be found!
+#[1378731751] EXTERNAL COMMAND: PROCESS_SERVICE_CHECK_RESULT;Microsoft.SystemCenter.AgentWatchersGroup;p_scom;2;Health Service Heartbeat Failure
+#[1378731751] EXTERNAL COMMAND: PROCESS_SERVICE_CHECK_RESULT;Microsoft.Unix.Computer:cimlab-2-r.yourdomain;p_scom;2;Heartbeat failed
+#[1378731751] Warning:  Passive check result was received for service 'p_scom' on host 'Microsoft.Unix.Computer:cimlab-2-r.yourdomain', but the host could not be found!
+#[1378731753] PASSIVE SERVICE CHECK: MSDB01-R.yourdomain;p_scom;2;Database Backup Failed To Complete
+#[1378731753] PASSIVE SERVICE CHECK: Microsoft.SystemCenter.AgentWatchersGroup;p_scom;2;Failed to Connect to Computer
+#[1378731753] PASSIVE SERVICE CHECK: Microsoft.SystemCenter.AgentWatchersGroup;p_scom;2;Health Service Heartbeat Failure
+#[1378731753] EXTERNAL COMMAND: PROCESS_SERVICE_CHECK_RESULT;MSDB01-R.yourdomain;p_scom;2;Logical Disk Free Space is low
+
+import re, sys, datetime
+from datetime import date, timedelta
+import mechanize
+import cookielib
+import base64
+import urllib
+import socket
+
+#Nagios exit  codes
+UNKNOWN = -1
+OK = 0
+WARNING = 1
+CRITICAL = 2
+
+#define logfiles and url to fruity
+
+debug = False
+logfile = '/var/log/nagios/nagios.log'
+url = 'https://localhost/fruity/'
+
+username='yeah'
+password='sure'
+
+def find_matches(f):
+  new_hosts = {}
+  for line in f:
+    host = re.search("Warning:  Passive check result was received for service '(\S+)' on host '(\S+)'", line)
+    if host:
+      #add host to list if nagios did not find it
+      if not new_hosts.has_key(host.group(2)):
+        new_hosts[ host.group(2)]=host.group(1)
+    else:
+      host = re.search("PASSIVE SERVICE CHECK: (\S+\w);(\S+\w);", line)
+      if host:
+        #remove host if nagios has added it later.
+        if new_hosts.has_key(host.group(1)):
+          new_hosts.pop(host.group(1))
+  return new_hosts
+#resolve "hostname" to ipaddress default to localhost since nagios really needs a valid ipaddress
+def hostname_resolve(hostname):
+    #add extra spaces to catch php bug
+    try:
+        return u"%s   " % socket.gethostbyname(hostname)
+    except socket.error:
+        return u"%s   " % "localhost"
+
+# add hosts to nagios via fruity
+def populate_fruity(host, service):
+  reload=False
+  if debug:
+    print host, service
+  # Browser
+  br = mechanize.Browser()
+  # Cookie Jar
+  cj = cookielib.LWPCookieJar()
+  br.set_cookiejar(cj)
+
+  # Browser options
+  br.set_handle_equiv(True)
+  br.set_handle_redirect(True)
+  br.set_handle_referer(True)
+  br.set_handle_robots(False)
+
+  # Follows refresh 0 but not hangs on refresh > 0
+  br.set_handle_refresh(mechanize._http.HTTPRefreshProcessor(), max_time=1)
+  # User-Agent, going thru the weblogs we can identify scompopulator
+  br.addheaders = [('User-agent', 'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) scompopulator')]
+  br.addheaders.append(('Authorization', 'Basic %s' % base64.encodestring('%s:%s' % (username, password))))
+
+  if debug:
+    print url
+  r = br.open(url)
+  html = r.read()
+  hosts_url =  url+'hosts.php'
+  if debug:
+    print hosts_url
+  r = br.open(hosts_url)
+  html = r.read()
+  if debug:
+    print html
+  if host not in html:
+    parameters = {'request' : 'add_host' , 'host_name' : host , 'alias' : host , 'address' : '127.0.0.1' , 'use_template_id' : ''}
+    #write better code to add more services than scom and other templates
+    if service == 'p_scom':
+       parameters['use_template_id'] = '29'
+    parameters['address'] = hostname_resolve(host)
+    parameters['dummy_value'] = 'dummy_value' #Yet another ugly value added just for php
+    post_url = url+'manually_add_hosts.php?host_id=0&child_host_add=1'
+    #Encode the parameters
+    print parameters
+    data = urllib.urlencode(parameters)
+    #Submit the form (POST request). You get the post_url and the request type(POST/GET) the same way with the parameters.
+    if debug:
+      print "posturl", post_url
+    r = br.open(post_url,data)
+    html = r.read()
+    reload=True
+    if 'dded' in html:
+      if debug:
+        print "host %s added" % host
+  else:
+    if debug:
+      print "host %s already exists" % host
+  if reload:
+    reload_url =  url+'export.php?confirmed=1'
+    if debug:
+      print "reloadurl", reload_url
+    r = br.open(reload_url,data)
+    html = r.read()
+    if 'Nagios Pre-Flight Succeeded' in html:
+      if debug:
+        print html
+      print  'OK Nagios Pre-Flight Succeeded'
+      sys.exit(WARNING)
+    else:
+      if debug:
+        print html
+      print 'nagios config is broken!, rerun with debug'
+      sys.exit(CRITICAL)
+
+# main function - controls flow of script
+def main():  
+  try:
+    f = open(logfile, 'r')
+    hosts_found = find_matches(f)
+    f.close()
+    for host in hosts_found:
+      populate_fruity(host, hosts_found[host]) 
+    print 'OK', str(hosts_found)
+    sys.exit(OK)
+  except Exception,e:
+    pass
+#    print 'Something went wrong', str(e)
+#    sys.exit(UNKNOWN)
+
+
+# call main function
+if __name__ == '__main__':
+  main()
