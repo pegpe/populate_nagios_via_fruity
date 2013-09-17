@@ -1,11 +1,11 @@
 Populate Nagios via fruity
 ==========================
 
-Code fore reading events from scom and automatially create hosts/services in Nagios
+Code for reading events from scom and automatically create hosts/services in Nagios
 
 
 
-Two simple scripts that makes hosts existing in scom to be displayed in Nagios.
+Two simple scripts that makes the hosts existing in scom to be displayed in Nagios.
 Scom is Microsofts attempt to monitor their software and services, a musthave for a site with more than a couple of windowsservers.
 With scom2nagios(http://www.mbaeker.de/category/tools/scom2nagios/) you get events exported to NSCA.
 But the host and service must already exist in Nagios and this is solved with this tool.
