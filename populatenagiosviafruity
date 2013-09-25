@@ -15,7 +15,7 @@
 #[1378731753] PASSIVE SERVICE CHECK: Microsoft.SystemCenter.AgentWatchersGroup;p_scom;2;Health Service Heartbeat Failure
 #[1378731753] EXTERNAL COMMAND: PROCESS_SERVICE_CHECK_RESULT;MSDB01-R.yourdomain;p_scom;2;Logical Disk Free Space is low
 
-import re, sys, datetime
+import re, sys, datetime, time
 from datetime import date, timedelta
 import mechanize
 import cookielib
@@ -39,20 +39,35 @@ username='yeah'
 password='sure'
 
 def find_matches(f):
+  dataFound = False
+  lastSeenPassiveCheck = int(time.time())
   new_hosts = {}
   for line in f:
     host = re.search("Warning:  Passive check result was received for service '(\S+)' on host '(\S+)'", line)
     if host:
+      deteFound = True
       #add host to list if nagios did not find it
       if not new_hosts.has_key(host.group(2)):
         new_hosts[ host.group(2)]=host.group(1)
     else:
-      host = re.search("PASSIVE SERVICE CHECK: (\S+\w);(\S+\w);", line)
+      host = re.search("\[(\d+\d)\] PASSIVE SERVICE CHECK: (\S+\w);(\S+\w);", line)
       if host:
+        dataFound = True
+        lastSeenPassiveCheck = int(host.group(1))
         #remove host if nagios has added it later.
-        if new_hosts.has_key(host.group(1)):
-          new_hosts.pop(host.group(1))
-  return new_hosts
+        if new_hosts.has_key(host.group(2)):
+          new_hosts.pop(host.group(2))
+  if lastSeenPassiveCheck+86400<int(time.time()):
+    # no passive checks seen in 24h
+    print "WARN: no working passive checks seen in 24h"
+    sys.exit(WARNING)
+
+  if dataFound:
+    return new_hosts
+  else:
+    print 'WARN: no passive data found '
+    sys.exit(WARNING)
+      
 #resolve "hostname" to ipaddress default to localhost since nagios really needs a valid ipaddress
 def hostname_resolve(hostname):
     #add extra spaces to catch php bug
@@ -143,13 +158,14 @@ def main():
     f.close()
     for host in hosts_found:
       populate_fruity(host, hosts_found[host]) 
-    print 'OK', str(hosts_found)
+    print "OK: %s autoimported hosts has not yet received a second passive status" % str(len(hosts_found))
     sys.exit(OK)
   except Exception,e:
-    pass
-#    print 'Something went wrong', str(e)
-#    sys.exit(UNKNOWN)
-
+    if 'errno' in str(dir(e)):
+      print str(e.errno)
+      sys.exit(e.errno)
+    else:
+      sys.exit(OK)
 
 # call main function
 if __name__ == '__main__':
