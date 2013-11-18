@@ -10,7 +10,7 @@ It actuelly needs some serious cleanup and beutyfying.
 include_once('includes/config.inc');
 
 $status_msg = '';
-     if($_POST['request'] == 'add_host') {
+     if($_POST['request'] == 'add_host' || $_POST['request'] == 'delete_host' ) {
        foreach($_POST as $key=>$value) {
 	 $p['host_manage'][trim($key)] = trim($value);
 	 print("<!-- " . $key . " = " . $value . " -->\n");
@@ -29,7 +29,20 @@ $status_msg = '';
        }
        // Check for pre-existing host template with same name
        if($fruity->host_exists($p['host_manage']['host_name'])) {
-	 $status_msg = "A host with that name already exists!";
+	 if($_POST['request'] == 'add_host'){
+	   $status_msg = "A host with that name already exists!";
+	 }
+	 else {	 
+	  if($fruity->host_has_children($_GET['host_id'])) {
+                                $status_msg = "Unable to delete Host.  This host has children.";
+                        }
+                        else {
+                                $fruity->delete_host($_GET['host_id']);
+                                $status_msg = "Deleted Host.";
+                        }
+ 
+	  }
+	   
        }
        else {
 	 if($p['host_manage']['host_name'] == '' || $p['host_manage']['alias'] == '' || $p['host_manage']['address'] == '') {

@@ -45,7 +45,7 @@ def find_matches(f):
   for line in f:
     host = re.search("Warning:  Passive check result was received for service '(\S+)' on host '(\S+)'", line)
     if host:
-      deteFound = True
+      dataFound = True
       #add host to list if nagios did not find it
       if not new_hosts.has_key(host.group(2)):
         new_hosts[ host.group(2)]=host.group(1)
@@ -114,7 +114,9 @@ def populate_fruity(host, service):
     parameters = {'request' : 'add_host' , 'host_name' : host , 'alias' : host , 'address' : '127.0.0.1' , 'use_template_id' : ''}
     #write better code to add more services than scom and other templates
     if service == 'p_scom':
-       parameters['use_template_id'] = '29'
+      parameters['use_template_id'] = '29'
+    if service.isdigit():
+      parameters['use_template_id'] = service
     parameters['address'] = hostname_resolve(host)
     parameters['dummy_value'] = 'dummy_value' #Yet another ugly value added just for php
     post_url = url+'manually_add_hosts.php?host_id=0&child_host_add=1'
