@@ -77,7 +77,7 @@ def hostname_resolve(hostname):
         return u"%s   " % "localhost"
 
 # add hosts to nagios via fruity
-def populate_fruity(host, service):
+def populate_fruity(host, service, delete=False, host_name=False, alias=False):
   reload=False
   if debug:
     print host, service
@@ -110,14 +110,18 @@ def populate_fruity(host, service):
   html = r.read()
   if debug:
     print html
-  if host not in html:
+  if not host_name:
+    host_name = host
+  if not alias:
+    alias = host
+  if host not in html  and not delete:
     parameters = {'request' : 'add_host' , 'host_name' : host , 'alias' : host , 'address' : '127.0.0.1' , 'use_template_id' : ''}
     #write better code to add more services than scom and other templates
     if service == 'p_scom':
       parameters['use_template_id'] = '29'
     if service.isdigit():
       parameters['use_template_id'] = service
-    parameters['address'] = hostname_resolve(host)
+    parameters['address'] = hostname_resolve(alias)
     parameters['dummy_value'] = 'dummy_value' #Yet another ugly value added just for php
     post_url = url+'manually_add_hosts.php?host_id=0&child_host_add=1'
     #Encode the parameters
@@ -135,6 +139,19 @@ def populate_fruity(host, service):
   else:
     if debug:
       print "host %s already exists" % host
+    if delete:
+      _l = 'host_id=(\S+)">%s' % host
+      host_id = re.search(_l, html)
+      if host_id:
+        print "----%s %s" % (host_id.group(1), host)
+        parameters['request'] = 'delete_host'
+        parameters['dummy_value'] = 'dummy_value'
+        post_url = url+'manually_add_hosts.php?host_id=%s' % host_id.group(1)
+        data = urllib.urlencode(parameters)
+        r = br.open(post_url,data)
+        html = r.read()
+        reload=True
+
   if reload:
     reload_url =  url+'export.php?confirmed=1'
     if debug:
